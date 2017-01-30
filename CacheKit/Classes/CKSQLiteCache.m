@@ -44,30 +44,35 @@
 
 - (instancetype)initWithName:(NSString *)name
 {
+    NSURL *cacheDirectoryURL = [[[NSFileManager defaultManager] URLsForDirectory:NSCachesDirectory
+                                                                       inDomains:NSUserDomainMask] lastObject];
+    return [self initWithName:name inDirectory:cacheDirectoryURL];
+}
+
+- (instancetype)initWithName:(NSString *)name inDirectory:(NSURL *)baseURL
+{
     NSAssert(name.length > 0, @"You must provide a name for %@. Use +sharedCache instead.", NSStringFromClass([self class]));
     
     self = [super initWithName:name];
     if (self) {
-        NSString *cacheDirectory = [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES) lastObject];
-        
         NSError *error = nil;
-        [[NSFileManager defaultManager] createDirectoryAtPath:cacheDirectory withIntermediateDirectories:YES attributes:nil error:&error];
+        [[NSFileManager defaultManager] createDirectoryAtURL:baseURL withIntermediateDirectories:YES attributes:nil error:&error];
         if (error != nil) {
-            NSLog(@"Error creating cache directory (%@): %@", cacheDirectory, error);
+            NSLog(@"Error creating directory (%@): %@", baseURL, error);
             return nil;
         }
         
-        cacheDirectory = [cacheDirectory stringByAppendingPathComponent:[name stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding]];
-        cacheDirectory = [cacheDirectory stringByAppendingPathExtension:@"sqlite"];
-        NSLog(@"Creating CKSQLiteCache at: %@", cacheDirectory);
+        NSURL *databaseURL = [baseURL URLByAppendingPathComponent:[name stringByAddingPercentEscapesUsingEncoding:NSUTF8StringEncoding]];
+        databaseURL = [databaseURL URLByAppendingPathExtension:@"sqlite"];
+        NSLog(@"Creating CKSQLiteCache at: %@", databaseURL);
         
-        _queue = [FMDatabaseQueue databaseQueueWithPath:cacheDirectory];
+        _queue = [FMDatabaseQueue databaseQueueWithPath:[databaseURL path]];
         [_queue inDatabase:^(FMDatabase *db) {
             [db executeUpdate:@"CREATE TABLE IF NOT EXISTS objects (key TEXT PRIMARY KEY, object BLOB, expires INTEGER);"];
-			
-			if (![db columnExists:@"createdAt" inTableWithName:@"objects"]) {
-				[db executeUpdate:@"ALTER TABLE objects ADD COLUMN createdAt INTEGER"];
-			}
+            
+            if (![db columnExists:@"createdAt" inTableWithName:@"objects"]) {
+                [db executeUpdate:@"ALTER TABLE objects ADD COLUMN createdAt INTEGER"];
+            }
         }];
         
         _internalCache = [NSCache new];
